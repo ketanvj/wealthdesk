@@ -26,7 +26,6 @@ _pre_mcp_adapters_backup_*/
 s10b/
 s11/
 s12/app.py
-s14b/
 s15/
 
 # Generated files -- recreate with seed.py and ingest.py

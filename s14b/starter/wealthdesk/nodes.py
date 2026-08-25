@@ -1,6 +1,6 @@
 import re
 import sqlite3
-import unicodedata
+
 from langchain_chroma import Chroma
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -25,7 +25,6 @@ from .config import (
     SYSTEM_PROMPT,
     VECTORSTORE_DIR,
 )
-from .config import LLAMAGUARD_THRESHOLD
 from .state import WealthDeskState
 from .tools import _run_tool, classifier_llm, llamaguard_llm, llm, llm_with_tools
 
@@ -48,19 +47,37 @@ def _init_vectorstore() -> None:
 
 
 # ---------------------------------------------------------------------------
-# US-14 TODO: implement the four guard functions below
+# S14b: Implement the four guard functions below
+#
+# The guard architecture (two layers) is identical to S14.
+# The only change from S14 is the Layer 2 model:
+#   S14   → Prompt Guard 2 (86M params, binary score, HuggingFace)
+#   S14b  → LlamaGuard 3 8B (8B params, 13 categories, Ollama or Together AI)
+#
+# You need to implement four functions in this order (they call each other):
+#   _llamaguard_safe()  →  guard()  →  blocked()  →  route_guard()
 # ---------------------------------------------------------------------------
 
 def _llamaguard_safe(message: str) -> bool:
-    """Call Llama Prompt Guard 2 via Groq and return True if message is safe.
+    """Call LlamaGuard 3 8B and return True if the message is safe.
+
+    LlamaGuard 3 8B response format — this is the key difference from S14:
+      S14 Prompt Guard 2  →  returns a float probability (e.g. 0.9992)
+      S14b LlamaGuard 3   →  returns a string: "safe" or "unsafe\\nS<n>"
+
+    Examples of what result.content looks like:
+      "safe"           — message passed all 13 safety checks
+      "unsafe\\nS6"    — blocked for S6 (Specialized Advice — financial/legal)
+      "unsafe\\nS13"   — blocked for S13 (System Prompt Issues — jailbreak)
 
     TODO:
-      - Invoke llamaguard_llm with [HumanMessage(content=message)]
-      - result.content is a float string — the injection probability (e.g. "0.9996")
-      - Parse it: score = float(result.content.strip())
-      - Return True if score < LLAMAGUARD_THRESHOLD (0.5), False otherwise
-      - Wrap in try/except; on any error print a warning and return True (fail-open)
-      - Print: f"[WealthDesk] LlamaPromptGuard: score={score:.4f}"
+      1. Invoke llamaguard_llm with [HumanMessage(content=message)]
+         (llamaguard_llm is already instantiated in tools.py for the right backend)
+      2. Get the raw verdict: result.content.strip().lower()
+      3. Return True if verdict starts with "safe", False otherwise
+      4. Wrap everything in try/except — on any exception, print a warning and
+         return True (fail-open: service staying up matters more than one missed check)
+      5. Print: f"[WealthDesk] LlamaGuard: {verdict!r} → safe/UNSAFE"
     """
     raise NotImplementedError("TODO: implement _llamaguard_safe()")
 
@@ -69,19 +86,35 @@ def _llamaguard_safe(message: str) -> bool:
 def guard(state: WealthDeskState) -> dict:
     """Inspect customer_message for PII, injection patterns, and unsafe content.
 
-    Two-layer defence:
-      Layer 1 (regex, < 1 ms):
-        1a. Loop through PII_PATTERNS. If any matches, return {"blocked_reason": "pii"}.
-        1b. Loop through INJECTION_PATTERNS. If any matches, return {"blocked_reason": "injection"}.
-      Layer 2 (LlamaGuard 3, semantic):
-        2.  Call _llamaguard_safe(msg). If False, return {"blocked_reason": "llamaguard"}.
+    Returns {"blocked_reason": ""} for a clean message, or
+    {"blocked_reason": "pii"|"injection"|"llamaguard"} when blocked.
 
-    Return {"blocked_reason": ""} if all layers pass.
+    Two-layer defence (same structure as S14, only Layer 2 model changes):
 
-    Pre-processing (OWASP LLM01:2026 mitigations #5 + NFKD):
-      msg = unicodedata.normalize("NFKD", raw)  — solution also strips invisible
-      Unicode (tag-block, variation-selectors, zero-width) before NFKD.
-    Print a short log line when something is blocked.
+    Layer 1 — regex (< 1 ms, deterministic, free):
+      1a. Normalize the raw message first:
+            import unicodedata
+            msg = unicodedata.normalize("NFKD", state["customer_message"])
+          Why: collapses full-width characters, homoglyph tricks before matching.
+      1b. Loop through _pii_compiled (pre-compiled from PII_PATTERNS).
+          If any pattern matches: print a log line, return {"blocked_reason": "pii"}.
+      1c. Loop through _injection_compiled (pre-compiled from INJECTION_PATTERNS).
+          If any pattern matches: return {"blocked_reason": "injection"}.
+
+      Note: PII is checked before injection. A message with both gets blocked as
+      "pii" — we want the most specific reason for the audit log.
+
+      But wait — _pii_compiled and _injection_compiled don't exist yet in the
+      starter. Add these two lines after the imports at the top of this file:
+        _pii_compiled       = [re.compile(p) for p in PII_PATTERNS]
+        _injection_compiled = [re.compile(p, re.IGNORECASE) for p in INJECTION_PATTERNS]
+
+    Layer 2 — LlamaGuard 3 8B (~500 ms, semantic):
+      Call _llamaguard_safe(msg). If it returns False:
+        return {"blocked_reason": "llamaguard"}
+
+    If all layers pass:
+      return {"blocked_reason": ""}
     """
     raise NotImplementedError("TODO: implement guard()")
 
@@ -89,11 +122,17 @@ def guard(state: WealthDeskState) -> dict:
 def blocked(state: WealthDeskState) -> dict:
     """Return the appropriate canned response for a blocked message.
 
+    Three cases based on blocked_reason:
+      "pii"       → GUARD_PII_RESPONSE       (DPDP Act — don't touch identifiers)
+      "llamaguard" → GUARD_UNSAFE_RESPONSE    (broad safety violation)
+      anything else ("injection") → GUARD_BLOCKED_RESPONSE
+
     TODO:
-      - If blocked_reason is "pii",       set response = GUARD_PII_RESPONSE.
-      - If blocked_reason is "llamaguard", set response = GUARD_UNSAFE_RESPONSE.
-      - Otherwise (injection),             set response = GUARD_BLOCKED_RESPONSE.
-      - Return response, specialist="guard", and updated history.
+      1. Read state["blocked_reason"] and select the right canned response.
+      2. Return a dict with:
+           response   = <selected canned response>
+           specialist = "guard"           (tells LangSmith this node handled it)
+           history    = state history + the new user/assistant turn pair
     """
     raise NotImplementedError("TODO: implement blocked()")
 
@@ -101,7 +140,11 @@ def blocked(state: WealthDeskState) -> dict:
 def route_guard(state: WealthDeskState) -> str:
     """Return "blocked" if blocked_reason is set, else "classify".
 
-    TODO: check state["blocked_reason"] and return the correct string.
+    This is the conditional edge function that LangGraph calls after guard().
+    If the guard set a reason → route to "blocked" node.
+    If the message is clean → route to "classify" node.
+
+    TODO: return "blocked" if state.get("blocked_reason") else "classify"
     """
     raise NotImplementedError("TODO: implement route_guard()")
 
@@ -163,8 +206,7 @@ def revise_response(state: WealthDeskState) -> dict:
         f"The response was flagged for: {reason}\n\n"
         "Rewrite it to fix the violation while keeping the response helpful.\n\n"
         "Rules:\n"
-        "  1. Never use: 'guaranteed returns', 'guaranteed return', 'guaranteed interest', "
-        "'risk-free', 'assured profit', 'assured returns', 'no risk'\n"
+        "  1. Never use: 'guaranteed returns', 'risk-free', 'assured profit', 'no risk'\n"
         "  2. Only state interest rates that appeared in the original -- do not add new ones\n"
         "  3. Keep the rewritten response under 150 words\n"
         "  4. End with 'WealthDesk | Bharat National Bank'\n\n"
@@ -362,10 +404,6 @@ def call_rates_agent(state: WealthDeskState) -> dict:
     }
 
 
-# ASI08:2026 Cascading Failures — compliance agent is the circuit-breaker: every
-# LLM output is validated before it leaves the graph. A hallucinated rate or banned
-# phrase is caught here and never reaches the user, preventing one bad LLM call
-# from cascading into regulatory exposure or customer harm.
 def call_compliance_agent(state: WealthDeskState) -> dict:
     print("[WealthDesk] Supervisor → Compliance Agent")
     result = _compliance_agent.invoke({
@@ -384,10 +422,6 @@ def call_compliance_agent(state: WealthDeskState) -> dict:
     }
 
 
-# ASI09:2026 Human-Agent Trust Exploitation — for queries requiring personal financial
-# judgement (COMPLEX), the agent never attempts an answer. It routes to a human
-# Relationship Manager, preventing automation bias from driving a decision the user
-# should make themselves with expert guidance.
 def escalate(state: WealthDeskState) -> dict:
     new_history = state.get("history", []) + [
         {"role": "user",      "content": state["customer_message"]},

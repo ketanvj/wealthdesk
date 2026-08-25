@@ -10,6 +10,67 @@ if not GROQ_API_KEY:
         "  Mac/Linux: cp .env.example .env"
     )
 
+# ---------------------------------------------------------------------------
+# S14b: What changed from S14 — LlamaGuard upgrade
+#
+# In S14 (class session) we used Meta Llama Prompt Guard 2 (86M parameters):
+#   - Tiny model tuned specifically for prompt injection detection
+#   - Runs locally via HuggingFace Transformers
+#   - Returns a probability score (0.0–1.0); blocked above 0.5
+#   - Only catches injection / jailbreak — nothing else
+#
+# In S14b we upgrade to LlamaGuard 3 8B — Meta's full content safety model:
+#   - 8 billion parameters (100× larger than Prompt Guard 2)
+#   - Covers 13 safety categories, not just injection
+#   - Returns "safe" or "unsafe\n<code>" e.g. "unsafe\nS6"
+#   - Runs via Ollama (local, free) or Together AI (cloud, paid)
+#
+# LlamaGuard 3 8B safety categories:
+#   S1  Violent Crimes        S6  Specialized Advice (financial/legal/medical)
+#   S2  Non-Violent Crimes    S7  Privacy
+#   S3  Sex-Related Crimes    S8  Hate Speech
+#   S4  Child Sexual Abuse    S9  Self-Harm
+#   S5  Defamation            S10 Sexual Content
+#                             S11 Elections
+#                             S12 Code Interpreter Abuse
+#                             S13 System Prompt Issues (jailbreaks)
+#
+# Why this matters for a banking agent:
+#   S6 catches "Tell me which mutual fund to buy" (financial advice boundary)
+#   S7 catches attempts to extract private customer data from the LLM
+#   S13 catches semantic jailbreaks that bypass the regex in Layer 1
+#
+# Backend switch: set LLAMAGUARD_BACKEND in your .env
+#   LLAMAGUARD_BACKEND=ollama    — local, free, no API key (default)
+#   LLAMAGUARD_BACKEND=together  — Together AI cloud (requires TOGETHER_API_KEY)
+#
+# Ollama setup (one-time):
+#   1. Install Ollama from https://ollama.com
+#   2. Run: ollama pull llama-guard3
+#   3. Leave Ollama running (it starts as a background service)
+# ---------------------------------------------------------------------------
+LLAMAGUARD_BACKEND = os.getenv("LLAMAGUARD_BACKEND", "ollama").lower()
+
+# Together AI key — only needed when LLAMAGUARD_BACKEND=together.
+# Together AI hosts many open-source models via an OpenAI-compatible API.
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
+
+if LLAMAGUARD_BACKEND == "together" and not TOGETHER_API_KEY:
+    print(
+        "[WealthDesk S14b] WARNING: LLAMAGUARD_BACKEND=together but TOGETHER_API_KEY not set.\n"
+        "  LlamaGuard will fail-open. Add TOGETHER_API_KEY to .env or switch to ollama."
+    )
+
+print(f"[WealthDesk S14b] LlamaGuard backend: {LLAMAGUARD_BACKEND}")
+
+# Model identifiers — Ollama and Together AI use different name conventions
+# for the same underlying model (Meta-Llama-Guard-3-8B).
+LLAMAGUARD_MODEL_OLLAMA   = "llama-guard3"
+LLAMAGUARD_MODEL_TOGETHER = "meta-llama/Meta-Llama-Guard-3-8B"
+
+# 20 tokens is enough — LlamaGuard only outputs "safe" or "unsafe\nS<n>".
+LLAMAGUARD_MAX_TOKENS     = 20
+
 # Respond LLM — both models support tool calling via langchain-groq.
 # If one hits Groq rate limits mid-session, comment it out and uncomment the other.
 MODEL_NAME            = "openai/gpt-oss-120b"  # primary: higher daily token limit
@@ -17,14 +78,7 @@ MODEL_NAME            = "openai/gpt-oss-120b"  # primary: higher daily token lim
 CLASSIFIER_MODEL      = "groq/compound-mini"
 CLASSIFIER_MAX_TOKENS = 10
 TEMPERATURE = 0.3
-MAX_TOKENS  = 300   # LLM06:2026 Unbounded Consumption — caps per-call token spend
-
-# S14: Llama Prompt Guard 2 — semantic injection classifier (Layer 2 of the input guard).
-# Returns a probability (0.0–1.0) that the message is a prompt injection.
-# Scores above LLAMAGUARD_THRESHOLD (0.5) are treated as injection.
-LLAMAGUARD_MODEL      = "meta-llama/llama-prompt-guard-2-86m"
-LLAMAGUARD_MAX_TOKENS = 30
-LLAMAGUARD_THRESHOLD  = 0.5
+MAX_TOKENS  = 300
 
 # ---------------------------------------------------------------------------
 # US-14 TODO: Fill in the guard pattern lists
@@ -172,15 +226,12 @@ VECTORSTORE_DIR = DATA_DIR / "vectorstore"
 EMBED_MODEL     = "all-MiniLM-L6-v2"
 RETRIEVAL_K     = 2
 
-MCP_SERVER_PATH = Path(__file__).parent.parent.parent.parent / "s07" / "starter" / "mcp_server.py"
+MCP_SERVER_PATH = Path(__file__).parent.parent.parent.parent / "s07" / "solution" / "mcp_server.py"
 
 SEBI_BANNED_PHRASES = [
     "guaranteed returns",
-    "guaranteed return",
-    "guaranteed interest",
     "risk-free",
     "assured profit",
-    "assured returns",
     "no risk",
 ]
 
