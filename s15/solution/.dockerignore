@@ -1,0 +1,33 @@
+# Never include secrets or local artefacts in the Docker build context.
+# Files listed here are invisible to all COPY instructions in the Dockerfile.
+
+# Secrets — must never reach the image
+.env
+.env.*
+!.env.example
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Local runtime data (rebuilt inside the container by seed.py / ingest.py)
+data/bnb_data.db
+data/checkpoints.db
+data/vectorstore/
+
+# LangGraph dev server state
+.langgraph_api/
+
+# Test and IDE files
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+.idea/
+.vscode/
+
+# macOS noise
+.DS_Store
