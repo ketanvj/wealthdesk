@@ -9,6 +9,7 @@ import sys
 
 from langchain_groq import ChatGroq
 from langchain_mcp_adapters.client import MultiServerMCPClient
+# from langsmith import traceable  # Uncomment to label MCP server in traces (see below)
 
 from .config import GROQ_API_KEY, MAX_TOKENS, MCP_SERVER_PATH, MODEL_NAME, TEMPERATURE
 
@@ -55,6 +56,9 @@ def _extract_text(result) -> str:
     return str(result)
 
 
+# @traceable(name="mcp · wealthdesk-tools")
+# Uncomment the line above (and the import at the top) to see the MCP server name
+# as a parent span in LangSmith: respond → mcp · wealthdesk-tools → query_rates
 def _run_tool(tool_name: str, tool_args: dict) -> str:
     if tool_name not in _tool_registry:
         return f"Unknown tool: {tool_name}"

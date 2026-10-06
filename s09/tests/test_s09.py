@@ -92,6 +92,17 @@ class TestSebiPhrases:
         assert "assured profit"     in SEBI_BANNED_PHRASES
         assert "no risk"            in SEBI_BANNED_PHRASES
 
+    def test_unicode_hyphen_variants_caught(self):
+        # LLMs sometimes output non-breaking hyphens (U+2011) or other Unicode
+        # dash variants that look identical to ASCII '-' but break string matching.
+        # _normalize_for_check() must map them to ASCII '-' before the phrase scan.
+        non_breaking = "the returns are not “risk‑free” in the absolute sense"
+        en_dash       = "this is a risk–free product"
+        passed_nb, reason_nb = _check_compliance(non_breaking)
+        passed_en, reason_en = _check_compliance(en_dash)
+        assert not passed_nb, f"non-breaking hyphen in 'risk-free' was not caught: {reason_nb}"
+        assert not passed_en, f"en-dash in 'risk-free' was not caught: {reason_en}"
+
 
 # ---------------------------------------------------------------------------
 # TestRateVerification
@@ -131,6 +142,23 @@ class TestRateVerification:
         with patch.object(_nodes, "_load_valid_rates", return_value={6.8, 7.1, 7.3, 8.5}):
             passed, _ = _check_compliance(
                 "Our 2-year FD earns 7.1% p.a."
+            )
+        assert passed
+
+    def test_per_annum_spelling_caught(self):
+        # LLMs sometimes write "9.99% per annum" instead of "9.99% p.a."
+        # Both must be caught by the rate extractor.
+        with patch.object(_nodes, "_load_valid_rates", return_value={8.5, 9.5, 7.1}):
+            passed, reason = _check_compliance(
+                "Home loan rates at BNB start at 9.99% per annum."
+            )
+        assert not passed
+        assert "9.99" in reason
+
+    def test_per_annum_valid_rate_passes(self):
+        with patch.object(_nodes, "_load_valid_rates", return_value={8.5, 9.5, 7.1}):
+            passed, _ = _check_compliance(
+                "The home loan rate is 8.5% per annum."
             )
         assert passed
 

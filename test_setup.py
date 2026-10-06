@@ -83,7 +83,7 @@ if groq_key and not groq_key.startswith("your_"):
         from groq import Groq
         client = Groq(api_key=groq_key)
         response = client.chat.completions.create(
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            model="openai/gpt-oss-20b",
             messages=[{"role": "user", "content": "Reply with exactly: READY"}],
             max_tokens=10,
         )
@@ -115,8 +115,8 @@ except FileNotFoundError:
 except Exception as e:
     check("Ollama installed", False, fix=f"Error: {e}")
 
-# ── LangSmith (Session 4+) ─────────────────────────────────
-print("\nLangSmith (needed from Session 4)")
+# ── LangSmith (Session 9+) ─────────────────────────────────
+print("\nLangSmith (needed from Session 9)")
 langsmith_key = os.environ.get("LANGSMITH_API_KEY", "")
 if not langsmith_key:
     from dotenv import load_dotenv
@@ -152,8 +152,8 @@ failed = [(label, fix) for label, p, fix in results if not p]
 
 print("\n" + "="*55)
 if not failed:
-    print(f"\n  {PASS} Setup complete -- you're ready for Session 1!\n")
-    print("  See you on June 21, 2026 at 10:00 AM IST.\n")
+    print(f"\n  {PASS} Setup complete -- you're ready for Session 2!\n")
+    print("  See you at the next session. Check WhatsApp for the date and time.\n")
 else:
     print(f"\n  {FAIL} {len(failed)} item(s) need attention:\n")
     for label, fix in failed:

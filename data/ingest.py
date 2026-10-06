@@ -39,6 +39,7 @@ Windows path note:
   without manual string manipulation.
 """
 
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -63,6 +64,32 @@ CHUNK_OVERLAP = 50    # overlap between consecutive chunks
 # Smaller chunks (500 chars) give more precise retrieval but may split context
 # across chunks. 50-char overlap ensures a sentence that straddles a boundary
 # is preserved in at least one chunk.
+
+# ---------------------------------------------------------------------------
+# LLM09:2026 — Vector and Embedding Weaknesses: ingest-time content scanning
+#
+# OWASP 2026 Scenario #4 (RAG Repository Poisoning): an attacker contributes
+# poisoned documents to the corpus. A matching query returns the modified
+# content, whose instructions alter the LLM's output. As few as five poisoned
+# documents achieved ~90% attack success against a knowledge base of millions.
+#
+# Defence: scan every chunk for injection patterns BEFORE storing it.
+# Runtime framing in DOCS_SYSTEM_PROMPT (in nodes.py) is the second line of
+# defence — this ingest-time scan is the first.
+#
+# Set SCAN_FOR_INJECTION = False to disable (not recommended in production).
+# ---------------------------------------------------------------------------
+SCAN_FOR_INJECTION = True
+
+_INGEST_INJECTION_PATTERNS = [re.compile(p, re.IGNORECASE) for p in [
+    r"ignore\s+(all\s+)?previous\s+instructions",
+    r"forget\s+everything",
+    r"\byou\s+are\s+now\b",
+    r"disregard\s+your\s+(system\s+)?prompt",
+    r"(reveal|show|tell)\s+(me\s+)?(your\s+)?(system\s+prompt|instructions)",
+    r"new\s+(persona|identity|role)\b",
+    r"act\s+as\s+.*with\s+no\s+(restrictions|limits)",
+]]
 
 
 def load_documents() -> List[Document]:
@@ -111,6 +138,49 @@ def split_documents(docs: List[Document]) -> List[Document]:
     return splitter.split_documents(docs)
 
 
+def scan_chunks(chunks: List[Document]) -> List[Document]:
+    """Remove chunks containing injection patterns before indexing (LLM09:2026).
+
+    Each chunk is matched against INGEST_INJECTION_PATTERNS. A chunk that
+    matches is logged and dropped — it will not be stored in ChromaDB.
+
+    Why here rather than at query time? A poisoned chunk already in the vector
+    store can be retrieved by legitimate queries and feed adversarial
+    instructions to the LLM. Blocking at ingest is the earliest and most
+    effective control point; runtime framing in DOCS_SYSTEM_PROMPT is the
+    fallback for content that slips through.
+    """
+    if not SCAN_FOR_INJECTION:
+        return chunks
+
+    clean, skipped = [], 0
+    for chunk in chunks:
+        matched = next(
+            (p.pattern for p in _INGEST_INJECTION_PATTERNS
+             if p.search(chunk.page_content)),
+            None,
+        )
+        if matched:
+            print(
+                f"  [SCAN] BLOCKED chunk from "
+                f"'{chunk.metadata.get('source', '?')}': "
+                f"matched /{matched[:50]}/",
+                file=sys.stderr,
+            )
+            skipped += 1
+        else:
+            clean.append(chunk)
+
+    if skipped:
+        print(
+            f"\n  [SCAN] {skipped} chunk(s) blocked — injection patterns detected.\n"
+            f"  [SCAN] Review the source documents and remove injected content.\n"
+            f"  [SCAN] Set SCAN_FOR_INJECTION=False to bypass (not recommended).\n",
+            file=sys.stderr,
+        )
+    return clean
+
+
 def main() -> None:
     print("Ingesting BNB documents into ChromaDB")
     print(f"  Source : {DOCS_DIR}")
@@ -130,6 +200,9 @@ def main() -> None:
     chunks = split_documents(docs)
     print(f"\nSplit {len(docs)} documents into {len(chunks)} chunks")
     print(f"  chunk_size={CHUNK_SIZE}, overlap={CHUNK_OVERLAP}\n")
+
+    chunks = scan_chunks(chunks)
+    print(f"  After ingest scan: {len(chunks)} chunks will be indexed\n")
 
     print(f"Loading embedding model: {EMBED_MODEL}")
     print("  First run downloads ~90 MB. Subsequent runs use cache.\n")

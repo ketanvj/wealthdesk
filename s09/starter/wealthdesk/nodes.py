@@ -11,6 +11,7 @@ Session 9 adds the compliance filter:
 """
 import re
 import sqlite3
+import unicodedata
 
 from langchain_chroma import Chroma
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -26,6 +27,14 @@ from .state import WealthDeskState
 from .tools import _run_tool, classifier_llm, llm, llm_with_tools
 
 vectorstore = None
+
+# Compiled regex automaton: one NFA pass over the response text, regardless of
+# how many banned phrases are in the list.  O(M) per call instead of O(N × M).
+# For true 10k+ scale swap for Aho-Corasick (pyahocorasick).
+_BANNED_PATTERN: re.Pattern = re.compile(
+    "|".join(re.escape(p) for p in SEBI_BANNED_PHRASES),
+    re.IGNORECASE,
+)
 
 
 def _init_vectorstore() -> None:
@@ -49,6 +58,11 @@ def _init_vectorstore() -> None:
 # Load all valid BNB interest rates from the SQLite database.
 # Returns a set of floats so _check_compliance() can verify rate accuracy.
 #
+# Note: reads SQLite directly, not via the MCP server. The MCP server returns
+# a formatted string for the LLM ("Home Loan: 8.5% p.a., ..."). The compliance
+# check needs a set of floats {8.5, 9.5, ...} for comparison — different job,
+# different access pattern.
+#
 #   try:
 #       conn      = sqlite3.connect(str(DB_PATH), check_same_thread=False)
 #       loan_rows = conn.execute("SELECT interest_rate FROM loan_products").fetchall()
@@ -68,7 +82,9 @@ def _load_valid_rates() -> set:
 
 def _extract_rates(text: str) -> list:
     """Extract all 'X% p.a.' values from text as floats. Provided -- no changes needed."""
-    matches = re.findall(r"(\d+\.?\d*)\s*%\s*p\.a\.", text, re.IGNORECASE)
+    # (?:p\.a\.|per\s+annum) matches both the abbreviation and the spelled-out form
+    # so "9.99% per annum" is caught alongside "9.99% p.a."
+    matches = re.findall(r"(\d+\.?\d*)\s*%\s*(?:p\.a\.|per\s+annum)", text, re.IGNORECASE)
     return [float(m) for m in matches]
 
 
@@ -84,13 +100,13 @@ def _extract_rates(text: str) -> list:
 #
 #   @traceable(name="sebi_compliance_check")
 #   def _check_compliance(draft: str) -> tuple:
-#       lower = draft.lower()
+#       normalized = _normalize_for_check(draft)   # handles Unicode hyphens
 #
-#       for phrase in SEBI_BANNED_PHRASES:
-#           if phrase in lower:
-#               return False, f"banned phrase: '{phrase}'"
+#       match = _BANNED_PATTERN.search(normalized)  # single NFA pass over all phrases
+#       if match:
+#           return False, f"banned phrase: '{match.group()}'"
 #
-#       mentioned_rates = _extract_rates(draft)
+#       mentioned_rates = _extract_rates(normalized)
 #       if mentioned_rates:
 #           valid_rates = _load_valid_rates()
 #           if valid_rates:
@@ -100,8 +116,20 @@ def _extract_rates(text: str) -> list:
 #
 #       return True, "PASS"
 # ---------------------------------------------------------------------------
+def _normalize_for_check(text: str) -> str:
+    # LLMs often output Unicode punctuation that looks identical to ASCII but
+    # breaks substring matching. Replace all Unicode hyphen/dash variants with
+    # an ASCII hyphen so "risk-free" (U+2011 non-breaking hyphen) matches the
+    # banned phrase "risk-free" (U+002D standard hyphen).
+    text = unicodedata.normalize("NFKC", text)
+    for ch in "‐‑‒–—―−":  # hyphen variants + minus sign
+        text = text.replace(ch, "-")
+    return text.lower()
+
+
 def _check_compliance(draft: str) -> tuple:
     # TODO: implement this function (add @traceable decorator too)
+    # Use _normalize_for_check(draft) and _BANNED_PATTERN.search() — see hint above.
     return True, "PASS"
 
 
@@ -112,9 +140,19 @@ def classify(state: WealthDeskState) -> dict:
         HumanMessage(content=state["customer_message"]),
     ]
     try:
-        result     = classifier_llm.invoke(messages)
-        query_type = result.content.strip().upper()
-        if query_type not in {"SIMPLE", "COMPLEX", "OUT_OF_SCOPE"}:
+        result = classifier_llm.invoke(messages)
+        raw    = result.content.strip().upper()
+        # Models sometimes return "OUT OF SCOPE" (space) instead of "OUT_OF_SCOPE"
+        # (underscore), or include extra explanation text. Substring matching is
+        # more robust than an exact set check.
+        if "OUT_OF_SCOPE" in raw or "OUT OF SCOPE" in raw:
+            query_type = "OUT_OF_SCOPE"
+        elif "COMPLEX" in raw:
+            query_type = "COMPLEX"
+        elif "SIMPLE" in raw:
+            query_type = "SIMPLE"
+        else:
+            print(f"[WealthDesk] Unexpected classifier output: {repr(raw)!r} — defaulting to SIMPLE")
             query_type = "SIMPLE"
     except Exception as e:
         print(f"[WealthDesk] Classification error: {e}")

@@ -10,7 +10,7 @@ from pathlib import Path
 # Model settings (provided -- no changes needed)
 # ---------------------------------------------------------------------------
 
-MODEL_NAME  = "llama-3.3-70b-versatile"
+MODEL_NAME  = "openai/gpt-oss-20b"
 TEMPERATURE = 0.3
 MAX_TOKENS  = 300
 

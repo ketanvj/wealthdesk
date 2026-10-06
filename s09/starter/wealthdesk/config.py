@@ -53,7 +53,7 @@ OUT_OF_SCOPE : Anything not about BNB banking — general knowledge, sports, ent
                news, technology, other banks, or requests unrelated to banking products.
                Examples: "Write me a poem", "Compare BNB with HDFC Bank",
                "What is the stock market doing today?", "Who won the cricket World Cup?",
-               "Tell me a joke", "What is the weather in Mumbai?"
+               "Who won the IPL?", "Tell me a joke", "What is the weather in Mumbai?"
 
 Decision rule: if the query asks for advice, a recommendation, a comparison, or involves
 the customer's personal situation — choose COMPLEX. If it is not about BNB banking at

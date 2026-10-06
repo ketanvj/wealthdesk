@@ -17,7 +17,7 @@ langgraph-cli[inmem]<2.0                  # langgraph dev -- local server + Lang
 langchain>=0.3.0,<1.0
 langchain-core>=0.3.0,<1.0
 langchain-text-splitters>=0.3.0,<1.0      # RecursiveCharacterTextSplitter (split from langchain in 0.3)
-langchain-groq>=0.1.9,<1.0               # Groq (meta-llama/llama-4-scout-17b-16e-instruct) -- the agent LLM
+langchain-groq>=0.1.9,<1.0               # Groq (openai/gpt-oss-20b) -- the agent LLM
 
 # --- Session 1+: Environment and runtime ---
 python-dotenv>=1.0.0,<2.0                 # reads .env -- first line of every agent file
@@ -49,6 +49,14 @@ streamlit>=1.35.0,<2.0
 # --- Session 15+: Containerisation ---
 # Docker is installed separately -- not a pip package.
 # See s15/instructor_notes.md for Docker Desktop setup.
+
+# --- Session 16+: FastAPI + MCP SSE ---
+fastapi>=0.115.0,<1.0
+uvicorn[standard]>=0.30.0,<1.0
+
+# --- Session 18+: Production security hardening ---
+pydantic-settings>=2.0.0,<3.0            # Settings with startup validation
+slowapi>=0.1.9,<1.0                      # Rate limiting for FastAPI
 
 # --- Development and testing ---
 pytest>=8.0.0,<9.0

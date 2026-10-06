@@ -67,7 +67,7 @@ if not GROQ_API_KEY:
 
 # Judge model: deliberately different from the agent model.
 # A separate judge avoids the model scoring its own output style.
-MODEL_NAME = "llama-3.3-70b-versatile"
+MODEL_NAME = "openai/gpt-oss-20b"
 PASS_SCORE = 3   # minimum judge score (1-5) for a RATES/POLICY response to pass
 
 DATA_DIR     = Path(__file__).parent / "data"

@@ -10,7 +10,10 @@ if not GROQ_API_KEY:
         "  Mac/Linux: cp .env.example .env"
     )
 
-MODEL_NAME  = "openai/gpt-oss-20b"
+# gpt-oss-120b is required for the Rates Agent: after a tool call + result,
+# gpt-oss-20b ignores tool_choice=none and tries to call the tool again,
+# which Groq rejects with a 400 error. The 120b model handles this correctly.
+MODEL_NAME  = "openai/gpt-oss-120b"
 TEMPERATURE = 0.3
 MAX_TOKENS  = 300
 

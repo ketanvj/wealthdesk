@@ -28,6 +28,7 @@ import sys
 
 from langchain_groq import ChatGroq
 from langchain_mcp_adapters.client import MultiServerMCPClient
+# from langsmith import traceable  # Uncomment to label MCP server in traces (see below)
 
 from .config import (
     CLASSIFIER_MAX_TOKENS, CLASSIFIER_MODEL, CLASSIFIER_TEMPERATURE,
@@ -107,6 +108,9 @@ def _extract_text(result) -> str:
 # asyncio.run(tool.ainvoke(tool_args)) inside a try/except, then pass the
 # result through _extract_text() to get a plain string:
 #
+#   # @traceable(name="mcp · wealthdesk-tools")
+#   # Uncomment the line above (and the import at the top) to see the MCP server
+#   # name as a parent span in LangSmith: respond → mcp · wealthdesk-tools → query_rates
 #   def _run_tool(tool_name: str, tool_args: dict) -> str:
 #       if tool_name not in _tool_registry:
 #           return f"Unknown tool: {tool_name}"
@@ -116,5 +120,8 @@ def _extract_text(result) -> str:
 #       except Exception as e:
 #           return f"Tool error ({tool_name}): {e}"
 # ---------------------------------------------------------------------------
+# @traceable(name="mcp · wealthdesk-tools")
+# Uncomment the line above (and the import at the top) to see the MCP server name
+# as a parent span in LangSmith: respond → mcp · wealthdesk-tools → query_rates
 def _run_tool(tool_name: str, tool_args: dict) -> str:
     raise NotImplementedError("TODO 3: implement _run_tool()")
