@@ -1,11 +1,11 @@
 # WealthDesk -- In-Class Build
 
-**Agentic AI Engineering, Batch 1 (June 2026)**
+**Agentic AI Engineering, Batch 2 (October 2026)**
 
 WealthDesk is the AI banking assistant for Bharat National Bank (BNB) that you build
-session by session across the first 16 sessions of the course. By Session 16 it is a
-multi-agent system with a Streamlit UI, ChromaDB RAG, SQLite tool calls, MCP integration,
-compliance filtering, LangSmith observability, and a Docker deployment.
+session by session across the course. By Session 16 it is a multi-agent system with a
+Streamlit UI, ChromaDB RAG, SQLite tool calls, MCP integration, compliance filtering,
+LangSmith observability, and a Docker deployment.
 
 ---
 
@@ -24,9 +24,14 @@ cd wealthdesk
 git remote add upstream https://github.com/ketanvj/wealthdesk.git
 ```
 
+**Step 4 -- Switch to the Batch 2 branch:**
+```
+git checkout -b cohort2 --track upstream/cohort2
+```
+
 **Before each session**, pull the latest starter files:
 ```
-git pull upstream main
+git pull upstream cohort2
 ```
 
 **After working in class**, save your code to your fork:
@@ -47,15 +52,17 @@ git push
 **Setup (run once, before Session 1):**
 
 ```
-# Windows
-pip install -r requirements.txt
-copy .env.example .env
-# Edit .env with your actual Groq API key
+# Step 1 -- Create a virtual environment (required)
+# Mac:     python3 -m venv .venv && source .venv/bin/activate
+# Windows: python -m venv .venv && .venv\Scripts\activate
 
-# Mac/Linux
+# Step 2 -- Install packages
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your actual Groq API key
+
+# Step 3 -- Create your .env
+# Mac:     cp .env.example .env
+# Windows: copy .env.example .env
+# Edit .env and add your actual Groq API key
 ```
 
 **Seed the database and vector store (run once, before Session 1):**
@@ -92,11 +99,10 @@ wealthdesk/
       langgraph.json    LangGraph Studio config
     solution/           Reference solution (same package layout)
     tests/test_s01.py   Unit tests (run with: pytest s01/tests/ -v)
-    instructor_notes.md Session plan, timings, common issues (instructor-only)
 
   s02/ ... s16/         Added as the course progresses
 
-  requirements.txt      All packages for all 17 sessions (install once)
+  requirements.txt      All packages for all sessions (install once)
   .env.example          Template for your .env file
   .gitignore            Excludes .env, database, and vector store from git
 ```
@@ -133,11 +139,9 @@ wealthdesk/
 # From the wealthdesk/ directory -- run one session at a time:
 pytest s01/tests/ -v
 pytest s02/tests/ -v
-pytest s03/tests/ -v
 
 # Tests do not require a live Groq API key -- the LLM is mocked.
-# You can also run all sessions together -- each session uses its own
-# wealthdesk package, so there are no import collisions.
+# You can also run multiple sessions together:
 pytest s01/tests/ s02/tests/ s03/tests/ -v
 ```
 
@@ -154,5 +158,5 @@ pytest s01/tests/ s02/tests/ s03/tests/ -v
 
 ## Getting Help
 
-Post in the Batch 1 WhatsApp group. Include: the error message, which script you were running,
+Post in the WhatsApp group. Include: the error message, which script you were running,
 and which operating system you are on.
