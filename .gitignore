@@ -27,6 +27,25 @@ s10b/
 s11/
 s12/app.py
 
+# Cohort 2 progressive release -- remove a line here before each session
+s02/
+s03/
+s04/
+s05/
+s06/
+s07/
+s08/
+s09/
+s10/
+s12/
+s13/
+s14/
+s14b/
+s15/
+s16/
+s17/
+s18/
+
 # Generated files -- recreate with seed.py and ingest.py
 data/bnb_data.db
 data/checkpoints.db
