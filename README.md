@@ -49,11 +49,17 @@ git push
 2. A Groq API key (free tier): https://console.groq.com/keys
 3. VS Code with the Python extension
 
+**Intel Mac users:** Use Python 3.11 or 3.12 for the local Hugging Face embeddings.
+PyTorch does not publish Intel macOS wheels for Python 3.13 or later. Apple Silicon
+and other supported platforms can use Python 3.13+.
+
 **Setup (run once, before Session 1):**
 
 ```
 # Step 1 -- Create a virtual environment (required)
-# Mac:     python3 -m venv .venv && source .venv/bin/activate
+# Mac (Apple Silicon): python3 -m venv .venv && source .venv/bin/activate
+# Intel Mac (Python 3.12): python3.12 -m venv .venv312 && source .venv312/bin/activate
+# Intel Mac (Python 3.11): python3.11 -m venv .venv311 && source .venv311/bin/activate
 # Windows: python -m venv .venv && .venv\Scripts\activate
 
 # Step 2 -- Install packages
