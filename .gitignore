@@ -22,6 +22,8 @@ s*/*.html
 s*/*.pdf
 s*/instructor_demo/
 prds/
+reference/
+LIVE_EVAL.md
 _pre_mcp_adapters_backup_*/
 s10b/
 s11/
