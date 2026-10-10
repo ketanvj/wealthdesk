@@ -10,14 +10,14 @@
 # from silently resolving to an incompatible future release.
 
 # --- Sessions 1-17: Core LangGraph stack ---
-langgraph>=1.0.0,<2.0
-langgraph-checkpoint-sqlite>=2.0.0,<3.0   # SqliteSaver for multi-turn memory (US-02, Session 2)
+langgraph==1.2.14
+langgraph-checkpoint-sqlite>=2.0.10,<3.0   # SqliteSaver for multi-turn memory (US-02, Session 2)
 aiosqlite>=0.19.0,<1.0                    # async SQLite support required by langgraph-checkpoint-sqlite
 langgraph-cli[inmem]<2.0                  # langgraph dev -- local server + LangGraph Studio graph visualiser
-langchain>=0.3.0,<1.0
-langchain-core>=0.3.0,<1.0
+langchain==1.4.3
+langchain-core>=1.6.3,<2.0
 langchain-text-splitters>=0.3.0,<1.0      # RecursiveCharacterTextSplitter (split from langchain in 0.3)
-langchain-groq>=0.1.9,<1.0               # Groq (openai/gpt-oss-20b) -- the agent LLM
+langchain-groq==1.1.3               # Groq (openai/gpt-oss-20b) -- the agent LLM
 
 # --- Session 1+: Environment and runtime ---
 python-dotenv>=1.0.0,<2.0                 # reads .env -- first line of every agent file
@@ -27,8 +27,11 @@ langchain-ollama>=0.2.0,<1.0             # ChatOllama -- classroom fallback if G
 # --- Session 4+: Vector store and RAG ---
 chromadb>=0.5.0,<1.0
 langchain-chroma>=0.1.4,<1.0
-langchain-huggingface>=0.0.3,<1.0        # free local embeddings (all-MiniLM-L6-v2)
+langchain-huggingface==1.2.2      # free local embeddings (all-MiniLM-L6-v2)
 sentence-transformers>=2.7.0,<4.0        # backing library for HuggingFaceEmbeddings
+numpy<2.0; sys_platform == "darwin" and platform_machine == "x86_64" and python_version < "3.13"  # PyTorch 2.2.2 requires the NumPy 1.x ABI
+scipy<1.15; sys_platform == "darwin" and platform_machine == "x86_64" and python_version < "3.13"  # Keep sentence-transformers compatible with NumPy 1.x
+torch==2.2.2; sys_platform == "darwin" and platform_machine == "x86_64" and python_version < "3.13"  # Last PyTorch with Intel macOS wheels
 
 # --- Session 6+: Evaluation (LLM-as-judge) ---
 openai>=1.0.0,<2.0                        # GPT-4o-mini as the eval judge (different provider from Groq)
