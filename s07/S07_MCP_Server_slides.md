@@ -4,7 +4,7 @@
 **Session:** 7 (WealthDesk: MCP Server Part 1 — US-06 Part 1)
 **Audience:** Working developers who have completed S06. Comfortable with the WealthDesk agent, LangSmith tracing, and SQLite tool calls from S05.
 **Duration:** 2.5 hours (20 min problem framing + 15 min concepts + 25 min walkthrough + 30 min hands-on + 25 min Inspector demo + 10 min tests/debrief + ~25 min transitions/Q&A/setup)
-**Slide count:** 12
+**Slide count:** 13
 
 ---
 
@@ -464,7 +464,64 @@ Answer: add one `@mcp.tool()` function to `mcp_server.py`. Restart the server. I
 
 ---
 
-## Slide 10 — Tests and Debrief
+## Slide 10 — Three Clients, One Server
+
+**Heading:** Same server. Three clients. Zero changes to `mcp_server.py`.
+
+**Sub-heading eyebrow:** LIVE DEMO (if time allows)
+
+**Two-column layout:**
+
+Left — Claude Code:
+```bash
+# From inside the wealthdesk/ directory
+claude mcp add wealthdesk-tools \
+  python3 $(pwd)/s07/starter/mcp_server.py
+
+# Start Claude Code
+claude
+```
+Then ask: *"What are BNB's current home loan rates?"*
+Claude Code calls `query_rates(product_type="loan")` and shows the live result.
+
+```bash
+# Remove after demo
+claude mcp remove wealthdesk-tools
+```
+
+> **Note:** Claude Code must be opened from the `wealthdesk/` directory. Project-scoped servers only load when the project path matches.
+
+Right — GitHub Copilot (VS Code Agent Mode):
+Create `.vscode/mcp.json` in the `wealthdesk/` folder:
+```json
+{
+  "servers": {
+    "wealthdesk-tools": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${workspaceFolder}/s07/starter/mcp_server.py"]
+    }
+  }
+}
+```
+Then in VS Code:
+1. Open GitHub Copilot Chat (`Cmd+Alt+I`)
+2. Switch to **Agent** mode (dropdown at top of chat panel)
+3. Click the **Tools** icon — `query_rates` and `query_branch` appear
+4. Ask: *"What are BNB's home loan rates?"*
+
+> Requires VS Code 1.99+ with GitHub Copilot and agent mode enabled.
+> If tools don't appear: `Cmd+Shift+P` → Reload Window.
+
+**Callout (full width):**
+> "Three clients: Inspector, Claude Code, GitHub Copilot. The server didn't change. That is exactly what a standard protocol buys you — build once, connect everywhere. Session 8 makes our own Python agent the fourth client."
+
+**Instructor note:**
+[10 min — optional, run if time allows] This is the "USB-C for AI" moment — the abstract architecture argument becomes undeniable when they watch two production tools connect to the server they just built. Run both demos live if you can; if time is short, do Claude Code only — it has the tightest feedback loop. The teaching point to say out loud: "The server didn't change. Not a single line. What changed is the config file on the client side. That is exactly what a standard protocol buys you." Then preview S08: "Next session, our WealthDesk Python agent becomes the fourth client."
+
+---
+
+## Slide 11 — Tests and Debrief
 
 **Heading:** What the tests verify
 
@@ -507,7 +564,7 @@ The `r > 0` guard handles the edge case where `rate=0` (avoid division by zero).
 
 ---
 
-## Slide 11 — Preview Session 8
+## Slide 12 — Preview Session 8
 
 **Heading:** What changes in Session 8
 
@@ -570,7 +627,7 @@ Graph topology, `classify → retrieve → respond` flow, system prompts, LangSm
 
 ---
 
-## Slide 12 — Quick Reference
+## Slide 13 — Quick Reference
 
 **Heading:** Quick Reference — Leave on screen during hands-on
 
