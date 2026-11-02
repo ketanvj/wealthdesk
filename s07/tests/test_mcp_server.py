@@ -155,3 +155,12 @@ def test_branch_city_union_injection():
     """UNION-based SQL injection should be treated as a literal city name."""
     result = query_branch("x' UNION SELECT name,city,address,ifsc,phone FROM branches--")
     assert "Mumbai" not in result
+
+
+def test_branch_city_injection_does_not_drop_table():
+    """After an injection attempt, the branches table must still contain data."""
+    # Attempt a DROP TABLE via the city parameter — parameterised query keeps it harmless.
+    query_branch("Mumbai'; DROP TABLE branches;--")
+    # If the injection succeeded, this call would raise OperationalError (no such table).
+    result = query_branch("Mumbai")
+    assert "Andheri" in result, "branches table was dropped — parameterised query may be broken"
