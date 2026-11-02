@@ -1,0 +1,5 @@
+{
+  "dependencies": ["."],
+  "graphs": {"wealthdesk": "wealthdesk.agent:graph"},
+  "env": "../../.env"
+}

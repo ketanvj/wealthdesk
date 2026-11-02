@@ -133,7 +133,14 @@ def load_documents() -> List[Document]:
         if not text.strip():
             print(f"  Warning: {path.name} is empty -- skipping", file=sys.stderr)
             continue
+        # extra: doc_type + product tags for this file, e.g. {"doc_type": "guide", "product": "home_loan"}
+        # Falls back to {"doc_type": "other", "product": "general"} for any unregistered file.
         extra = DOCUMENT_METADATA.get(path.name, {"doc_type": "other", "product": "general"})
+        # Merge source filename + extra tags into the Document's metadata dict.
+        # These fields travel with every chunk and appear in LangSmith traces.
+        # Example for home_loan_guide.md:
+        #   doc.page_content : "# BNB Home Loan Guide\n\n## Who is Eligible..."
+        #   doc.metadata     : {"source": "home_loan_guide.md", "doc_type": "guide", "product": "home_loan"}
         doc = Document(page_content=text, metadata={"source": path.name, **extra})
         docs.append(doc)
         print(f"  Loaded: {path.name:40s} ({len(text):,} chars)  [{extra['doc_type']}]")
@@ -148,6 +155,9 @@ def split_documents(docs: List[Document]) -> List[Document]:
     then sentence boundaries, then character boundaries. This preserves semantic
     context better than splitting at fixed character positions.
     """
+    # RecursiveCharacterTextSplitter tries separators in order ("\n\n" → "\n" → " " → "")
+    # so cuts land near natural boundaries. CharacterTextSplitter cuts at a fixed count
+    # regardless of where a sentence ends — use that when strict size control matters more.
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
@@ -159,13 +169,13 @@ def split_documents(docs: List[Document]) -> List[Document]:
 def scan_chunks(chunks: List[Document]) -> List[Document]:
     """Remove chunks containing injection patterns before indexing (LLM09:2026).
 
-    Each chunk is matched against INGEST_INJECTION_PATTERNS. A chunk that
+    Each chunk is matched against _INGEST_INJECTION_PATTERNS. A chunk that
     matches is logged and dropped — it will not be stored in ChromaDB.
 
     Why here rather than at query time? A poisoned chunk already in the vector
     store can be retrieved by legitimate queries and feed adversarial
     instructions to the LLM. Blocking at ingest is the earliest and most
-    effective control point; runtime framing in DOCS_SYSTEM_PROMPT is the
+    effective control point; runtime framing in SYSTEM_PROMPT (nodes.py) is the
     fallback for content that slips through.
     """
     if not SCAN_FOR_INJECTION:
@@ -215,10 +225,13 @@ def main() -> None:
     print("Loading documents...")
     docs = load_documents()
 
+    # chunks: list of Document objects, each holding one text slice + inherited metadata
     chunks = split_documents(docs)
     print(f"\nSplit {len(docs)} documents into {len(chunks)} chunks")
     print(f"  chunk_size={CHUNK_SIZE}, overlap={CHUNK_OVERLAP}\n")
 
+    # Overwrite chunks with the filtered list — any chunk containing injection
+    # patterns is dropped here before it reaches the vector store.
     chunks = scan_chunks(chunks)
     print(f"  After ingest scan: {len(chunks)} chunks will be indexed\n")
 
@@ -230,19 +243,33 @@ def main() -> None:
     VECTOR_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Building vector store...")
-   # Configure Chroma's HNSW index to use cosine similarity.
-#
-# During retrieval, Chroma compares the query embedding with every stored
-# embedding using this metric. Cosine measures the angle between vectors,
-# making it well-suited for semantic text similarity.
-#
-# This metric becomes part of the HNSW index structure when the collection
-# is created and cannot be changed later. Switching to a different metric
-# (e.g., L2) requires rebuilding the vector store.
-#
-# For the WealthDesk corpus, cosine also produces similarity scores that
-# separate meaningful queries from noise more cleanly, making thresholding
-# (e.g., 0.3) easier to tune.
+    # Configure Chroma's HNSW index to use cosine similarity.
+    #
+    # During retrieval, Chroma compares the query embedding with every stored
+    # embedding using this metric. Cosine measures the angle between vectors,
+    # making it well-suited for semantic text similarity.
+    #
+    # This metric becomes part of the HNSW index structure when the collection
+    # is created and cannot be changed later. Switching to a different metric
+    # (e.g., L2) requires rebuilding the vector store.
+    #
+    # For the WealthDesk corpus, cosine also produces similarity scores that
+    # separate meaningful queries from noise more cleanly, making thresholding
+    # (e.g., 0.3) easier to tune.
+    # hnsw - Hierarchical Navigable Small World)
+    # hnsw:space sets the similarity metric for the HNSW index. Options:
+    #   "cosine" — measures angle between vectors; best for semantic text similarity.
+    #              Scores returned by similarity_search_with_relevance_scores are 0–1
+    #              (higher = more similar). Used here.
+    #   "l2"     — Euclidean (straight-line) distance; sensitive to vector magnitude,
+    #              not just direction. ChromaDB default when hnsw:space is not set.
+    #              Scores are distances (lower = more similar) — harder to threshold.
+    #   "ip"     — Inner product (dot product); used when embeddings are pre-normalised.
+    #              Less common; requires careful embedding model selection.
+    #
+    # This setting is permanent — changing it requires deleting vectorstore/ and
+    # re-running ingest.py. The score threshold in config.py (0.3) is calibrated
+    # for cosine; recalibrate if you switch metrics.
     Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
