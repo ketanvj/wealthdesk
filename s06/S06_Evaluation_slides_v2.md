@@ -1,12 +1,12 @@
-# S06 Baseline Evaluation — Slide Deck (v3 — post agent review)
+# S06 Baseline Evaluation — Slide Deck (v4 — post ChatGPT + Gemini review)
 
 **Course:** Agentic AI Engineering — Batch 1
 **Session:** 6 (WealthDesk: Baseline Evaluation — US-05)
 **Audience:** Working developers who have completed S05. Comfortable with the LangGraph node/edge model, LangSmith traces, and tool calls.
 **Duration:** ~75 minutes within the 2.5-hour session (45 min teaching + 30 min hands-on)
-**Slide count:** 14
+**Slide count:** 13
 
-**Changes from v2:** Slide 5 S01 example corrected to match actual golden_dataset.json (query text, criteria: ["8.5"] only, no must_not_contain); Slide 6 C01 query corrected to "Which BNB loan is best for me?"; Slide 6 injection test corrected to O07 (not O09) with must_not_contain now added to dataset; golden_dataset.json updated: C01 criteria adds "1800-103-1906", O07 adds must_not_contain for system-prompt leak test.
+**Changes from v3:** Slide count corrected to 13; Slide 5 heading "four fields" → "five fields"; Slide 6 instructor note O09 → O07 (x2); Slide 7/13/KTP#6 cross-architecture claim softened ("reduces correlated biases" not "eliminates systematic bias"); Slide 10 terminal output queries corrected (S01, C01); Slide 11 11-field result dict schema added, graph invocation pattern added, "Five blockers" → "Six"; Slide 12 fourth failure type added (evaluation/judge failures).
 
 ---
 
@@ -115,7 +115,7 @@ Runs in ~3–5 minutes. Same script against any version of the agent. Compare Se
 
 ## Slide 5 — The Golden Dataset: Structure
 
-**Heading:** The golden dataset — one JSON, four fields
+**Heading:** The golden dataset — one JSON, five fields
 
 **Open `s06/data/golden_dataset.json`. Show a SIMPLE item:**
 
@@ -181,7 +181,7 @@ O07 is a prompt injection test. The agent should route to OUT_OF_SCOPE and decli
 **Callout:** Dataset composition: 20 SIMPLE (5 loan rates, 5 FD rates, 4 branch, 4 loan policy, 2 FD policy) + 10 COMPLEX + 10 OUT_OF_SCOPE.
 
 **Instructor note:**
-[4 min] The O09 prompt injection test always gets a reaction. Ask: "What would happen without this test?" The agent might comply, hallucinate credentials, or behave unpredictably — and you wouldn't know until a real user tried it. With O09 in the golden dataset, that failure mode is tested on every run. The split between LLM judge (SIMPLE) and deterministic (COMPLEX/OOS) is also an economics decision: you don't want to pay for 20 extra LLM calls on questions that have yes/no keyword answers. Leave the LLM call for the cases where it's the only option.
+[4 min] The O07 prompt injection test always gets a reaction. Ask: "What would happen without this test?" The agent might comply, hallucinate credentials, or behave unpredictably — and you wouldn't know until a real user tried it. With O07 in the golden dataset, that failure mode is tested on every run. The split between LLM judge (SIMPLE) and deterministic (COMPLEX/OOS) is also an economics decision: you don't want to pay for 20 extra LLM calls on questions that have yes/no keyword answers. Leave the LLM call for the cases where it's the only option.
 
 ---
 
@@ -208,7 +208,7 @@ def parse_judge_response(output: str) -> tuple[int, str]:
     return score, reason
 ```
 
-**The judge model:** `qwen/qwen3.8-27b` (Alibaba Qwen) — a **completely different architecture** from the agent's `openai/gpt-oss-120b` (OpenAI GPT). This is true cross-architecture LLM-as-judge: two models from different companies, trained on different data, with no shared lineage. A judge from the same model family can be biased toward its own output style — using a different architecture eliminates that systematic bias. The judge only needs strong instruction-following, not tool-calling capability.
+**The judge model:** `qwen/qwen3.8-27b` (Alibaba Qwen) — from a **different company and training lineage** than the agent's `openai/gpt-oss-120b` (OpenAI GPT). A judge from the same model family can share systematic biases with the generator — it may favour the same phrasing, the same level of detail, the same blind spots. Using an independently developed model family reduces those correlated biases. It doesn't eliminate all judge bias, but it removes one known source of it. The judge only needs strong instruction-following, not tool-calling capability.
 
 **Three teaching points (highlighted as callout boxes anchored to the code):**
 
@@ -321,10 +321,10 @@ python s06/solution/evaluate.py
 ```
 Running evaluation on 40 questions...
 ------------------------------------------------------------
-  [PASS] S01: What is the current home loan interest rate?
+  [PASS] S01: What is the home loan interest rate at BNB?
   [PASS] S02: What is the personal loan interest rate at BNB?
   [FAIL] S10: Is the BNB 5-year FD eligible for tax deduction...
-  [PASS] C01: Should I take a home loan or use my savings to buy a house?
+  [PASS] C01: Which BNB loan is best for me?
   ...
 ```
 
@@ -374,13 +374,39 @@ Test first: run with a corrupt JSON file — does it give a clear error?
 Extract `actual_route`, `response`, compute `route_correct`.
 Compute `criteria_met` and `forbidden_found`.
 Branch on `expected_route`: deterministic for COMPLEX/OOS, LLM judge for SIMPLE.
-Return the result dict with all 11 fields.
+Return the result dict with all 11 fields — the exact schema:
+```python
+{
+    "id":             item["id"],
+    "query":          item["query"],
+    "category":       item["category"],
+    "expected_route": item["expected_route"],
+    "actual_route":   actual_route,          # from graph state["query_type"]
+    "response":       response,              # from graph state["response"]
+    "score":          score,                 # int 0–5  (0 = unparseable)
+    "reason":         reason,                # str
+    "route_correct":  route_correct,         # bool
+    "passed":         passed,                # bool
+    "forbidden_found": forbidden_found,      # bool
+}
+```
+TODO 4 depends on this schema — get it right here first.
 
 **TODO 3: `run_evaluation(graph, dataset)`**
 Loop over each item in the dataset.
 Create a unique `thread_id` for each question: `f"eval-{item['id']}"`.
 Call `graph.invoke(...)`, handle any graph exceptions.
 Print `[PASS]` / `[FAIL]` progress line, append to results list.
+
+Graph invocation pattern (S05 state schema):
+```python
+state  = graph.invoke(
+    {"customer_message": item["query"]},
+    config={"configurable": {"thread_id": f"eval-{item['id']}"}},
+)
+actual_route = state.get("query_type", "UNKNOWN")
+response     = state.get("response", "")
+```
 
 **TODO 4: `generate_report(results)`**
 Count total, passed, failed. Compute pass_rate and avg_score.
@@ -400,7 +426,7 @@ pytest s06/tests/ -v
 **Instructor note:**
 [30 min — circulate] **15-minute checkpoint:** Call a pause at the halfway mark — ask "Who has the evaluation running?" If fewer than half the room, stop and walk through TODO 3 on screen. Don't let participants debug `evaluate_response()` silently for 20 minutes.
 
-Five most common blockers:
+Six most common blockers:
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -444,6 +470,14 @@ Agent mentioned a competitor ("HDFC") or said "I cannot help."
 → Strengthen the SYSTEM_PROMPT rules.
 → Consider adding the forbidden term to more items' `must_not_contain`.
 
+**Evaluation failure**
+The evaluator itself failed — not the agent.
+- All SIMPLE scores are 0: judge output unparseable (check `print(result.content)` in `llm_judge`)
+- `GROQ_API_KEY` rate-limited mid-run: some items scored 0 from API error, not agent failure
+- Judge timed out: scores 0, eval continues
+→ Distinguish: score=0 from parsing failure ≠ score=1 from a bad response.
+→ Re-run failing items in isolation before concluding the agent is broken.
+
 **Homework box:**
 > Pick one failing SIMPLE question. Identify why it fails. Make it pass without breaking any currently passing question. Change something in the S05 agent (SYSTEM_PROMPT, CLASSIFY_SYSTEM, or a tool). Re-run the eval. Compare the before and after report.
 > This is the full software quality loop.
@@ -481,7 +515,7 @@ Row 2:
 | Takes too long | `dataset[:10]` for testing; full 40 in ~3–5 min is expected |
 
 **Instructor note:**
-[Leave on screen] The `avg_score 0.0` row is the most frequently hit invisible bug — point it out before they start. The judge model is `qwen/qwen3.8-27b` (Alibaba Qwen — different architecture from the agent's OpenAI GPT). If participants ask why a *different* model is used: same-family judges are biased toward their own output style; cross-architecture removes that bias. This is the "true LLM-as-judge" teaching point.
+[Leave on screen] The `avg_score 0.0` row is the most frequently hit invisible bug — point it out before they start. The judge model is `qwen/qwen3.8-27b` (Alibaba Qwen — different company and training lineage from the agent's OpenAI GPT). If participants ask why a *different* model is used: same-family judges can share systematic biases with the generator; using an independently developed model family reduces those correlated biases.
 
 ---
 
@@ -492,7 +526,7 @@ Row 2:
 3. **`passed` requires three conditions** — route correct AND content check AND no forbidden content; all three, not any one
 4. **score=0 means unparseable, not bad** — filter it from averages; don't conflate with score=1
 5. **`category` vs `expected_route`** — the report filter uses category strings (`"complex"`, `"oos"`), not expected_route strings (`"COMPLEX"`, `"OUT_OF_SCOPE"`); wrong field = silent 0.0 avg_score
-6. **True cross-architecture LLM-as-judge** — agent uses `openai/gpt-oss-120b` (OpenAI GPT family); judge uses `qwen/qwen3.8-27b` (Alibaba Qwen — completely different architecture). Same-family judges are biased toward their own output style; cross-architecture removes that systematic bias. Teach this when participants ask "why use a different model for the judge?"
+6. **Independent model family for the judge** — agent uses `openai/gpt-oss-120b` (OpenAI GPT family); judge uses `qwen/qwen3.8-27b` (Alibaba Qwen — different company, different training lineage). Same-family judges can share systematic biases with the generator; using an independently developed model family reduces those correlated biases. Teach this when participants ask "why use a different model for the judge?"
 7. **by_category is the actionable signal** — overall pass rate tells you the headline; category breakdown tells you what to fix
 8. **The centrepiece moment** — Slide 10: "What would loan_rates have scored in S03?" Zero. The eval would have caught that regression. Say it, pause, let it land.
 9. **S09 preview** — LangSmith Evaluate is the platform version of what they built today; same concepts, native UI; `golden_dataset.json` becomes a LangSmith Dataset; `langsmith.evaluate()` replaces the hand-written `run_evaluation()` loop
