@@ -82,7 +82,7 @@ agent.py
   llm.bind_tools([...])
   classify → retrieve → respond
 
-# Tools and agent: one file
+# Tools and agent: same application/package
 # Test a tool = start the agent
 # Share a tool = copy-paste
 ```
@@ -103,10 +103,10 @@ agent.py  (Session 8)
 **Three annotation cards below the diagram:**
 
 Card 1 — Separate process:
-`mcp_server.py` runs independently. No agent code needed to test a tool. Inspector can call it. A curl script can call it.
+`mcp_server.py` runs independently. No agent code needed to test a tool. Any MCP-compatible client — Inspector, the WealthDesk agent, Claude Code, GitHub Copilot — can connect to it.
 
 Card 2 — Discovered at runtime:
-The client asks the server for its tool list every time it connects. No Python imports are required. Zero code changes when a tool is added to the server — restart the server and the agent sees it automatically. This is fundamentally different from `bind_tools([...])`, which requires importing the function into the agent file.
+The client asks the server for its tool list when it connects. No Python imports are required. Zero code changes to the agent when a new tool is added to the server — restart the server, reconnect the client, and the new tool appears. This is fundamentally different from `bind_tools([...])`, which requires importing the function into the agent file.
 
 Card 3 — Any client can connect:
 MCP Inspector (today), the WealthDesk agent (S08), Claude Desktop (S11) — same server, different clients.
@@ -282,7 +282,7 @@ Card 2 — UNSAFE — never do this:
 f"WHERE city LIKE '%{city}%'"
 ```
 If `city = "' OR 1=1 --"` then the query becomes:
-`WHERE city LIKE '%' OR 1=1 --%'` — returns every branch, or worse, drops the table.
+`WHERE city LIKE '%' OR 1=1 --%'` — the injected condition bypasses the city filter and returns every branch instead of only the requested city.
 
 **Callout at bottom:**
 The SQL injection tests in `s07/tests/` verify this: `test_branch_city_injection_does_not_drop_table` passes a malicious string and confirms the `branches` table survives. We will revisit this at S14 (OWASP LLM Top 10).
@@ -339,6 +339,8 @@ Same `bnb_data.db` the S05 agent uses. One database, accessed by both the agent 
 
 Card 3 — ③ STDIO transport:
 `mcp.run()` is a **blocking call** — code after it never executes. It reads JSON-RPC messages from stdin and writes responses to stdout. That's why the terminal appears to hang: the server is waiting for a client to connect. When Session 8's agent subprocess-starts this server, Python gives it a stdin pipe. No ports, no HTTP, no authentication configuration needed for this course.
+
+**Important:** While using STDIO transport, never write debug output to `stdout` (no `print()` calls in the tool functions). Stdout is reserved for MCP protocol messages — extra output corrupts the communication stream. Use `logging` to `stderr` for any diagnostic output.
 
 **Run the server live:**
 ```bash
@@ -397,7 +399,8 @@ npx @modelcontextprotocol/inspector python s07/starter/mcp_server.py
 | `ModuleNotFoundError: mcp` | Package not installed | `pip install -r requirements.txt` |
 | `OperationalError: no such table: loan_products` | DB not seeded | `python data/seed.py` then retry |
 | `NotImplementedError` still raised | TODO body not replaced | Delete the `raise` line, paste SQL body |
-| Inspector shows no tools | Both TODOs must be implemented | Implement both, restart server |
+| Inspector shows no tools | Server startup or import error (tools register at import time, not at call time) | Check terminal for `ImportError` or `SyntaxError`; run `python s07/starter/mcp_server.py` directly to see the error |
+| Tools visible but calls fail with `NotImplementedError` | TODO body not yet replaced | Delete the `raise NotImplementedError` line and paste the SQL body |
 | `TypeError: 'tuple' object is not callable` | `params` not wrapped as tuple | Use `(f"%{city}%",)` not `f"%{city}%"` |
 | `npx: command not found` | Node.js not installed | Install Node.js from nodejs.org |
 | Inspector: `ModuleNotFoundError: mcp` | npx picked up system Python, not venv | Use `.venv/bin/python` (Mac/Linux) or `.venv\Scripts\python.exe` (Windows) |
@@ -417,7 +420,9 @@ npx @modelcontextprotocol/inspector python s07/starter/mcp_server.py
 ```bash
 npx @modelcontextprotocol/inspector python s07/starter/mcp_server.py
 ```
-Open http://localhost:5173 in browser
+Open the URL printed in your terminal (do not assume a fixed port — newer Inspector versions use port 6274 by default).
+
+**Node.js prerequisite:** Inspector requires Node.js 22.19 or newer. Run `node --version` to check. Install from nodejs.org if needed.
 
 **Venv note:** `npx` may invoke the system Python rather than your active venv. If Inspector shows `ModuleNotFoundError: mcp`, use the explicit venv Python path:
 ```bash
@@ -505,7 +510,7 @@ Create `.vscode/mcp.json` in the `wealthdesk/` folder:
 }
 ```
 Then in VS Code:
-1. Open GitHub Copilot Chat (`Cmd+Alt+I`)
+1. Open GitHub Copilot Chat (open the Chat panel from the Activity Bar)
 2. Switch to **Agent** mode (dropdown at top of chat panel)
 3. Click the **Tools** icon — `query_rates` and `query_branch` appear
 4. Ask: *"What are BNB's home loan rates?"*
@@ -534,7 +539,7 @@ pytest s07/tests/ -v
 **Five test call-outs:**
 
 `test_server_has_two_tools` — Structure test:
-Confirms exactly two `@mcp.tool()` registrations. If you accidentally register the same function twice, this fails. If you add a third tool without updating the test, this fails.
+Confirms exactly two `@mcp.tool()` registrations. If you accidentally register the same function twice, this fails. **Note for homework:** When you add `query_emi` as the homework assignment, this test will fail — intentionally. Update the assertion from `== 2` to `== 3`. Tests must evolve with intentional changes to the system.
 
 `test_home_loan_rate_is_8_5` — Data contract test:
 Verifies the specific value expected in the S06 golden dataset. If someone changes the seeded rate in `bnb_data.db`, the S06 eval pass rate would drop without explanation. This test catches the data contract break.
@@ -593,9 +598,9 @@ from langchain_mcp_adapters.client import ...
 
 # Connects to mcp_server.py at startup
 # Discovers tools via list_tools()
-# Calls tools via call_tool(name, args)
+# MCP adapter → LangChain tools
 
-# llm.bind_tools([...]) line: gone
+# llm.bind_tools(mcp_tools)  ← input changed
 # Graph topology: unchanged
 ```
 
@@ -617,7 +622,7 @@ This diagram is why the architecture matters for Claude Desktop, Cursor, VS Code
 **Two annotation cards:**
 
 What changes in S08 (RED):
-How the agent discovers tools — `llm.bind_tools([query_rates, query_branch])` is replaced by an MCP client connection to `mcp_server.py`.
+How the agent discovers tools — instead of `llm.bind_tools([query_rates, query_branch])` with locally imported functions, the agent discovers tools at runtime via an MCP client connection to `mcp_server.py`. The MCP adapter converts the discovered tools into LangChain-compatible tools, and `bind_tools()` receives those adapted tools. The mechanism stays; the input changes.
 
 What stays the same (GREEN):
 Graph topology, `classify → retrieve → respond` flow, system prompts, LangSmith tracing. In fact, traces get richer: tool calls are attributed to `"wealthdesk-tools"` in the trace.
@@ -651,7 +656,7 @@ The LLM decides which tool to call based on the description in the schema. A vag
 **Inspector command (prominent bar):**
 ```bash
 npx @modelcontextprotocol/inspector python s07/starter/mcp_server.py
-# Open http://localhost:5173
+# Open the URL printed in your terminal (port 6274 on newer Inspector versions)
 
 # If mcp is not found (venv not picked up):
 # Mac/Linux: use .venv/bin/python  instead of  python
@@ -660,7 +665,8 @@ npx @modelcontextprotocol/inspector python s07/starter/mcp_server.py
 
 **Common issues row:**
 - Server won't start → `python s07/solution/mcp_server.py` directly to see the error
-- No tools in Inspector → Both TODOs must be implemented; `raise NotImplementedError` still present?
+- No tools in Inspector → Server startup or import error; run `python s07/starter/mcp_server.py` directly to see the error
+- Tools visible but calls fail → `raise NotImplementedError` still present — delete the `raise` line and paste the SQL body
 - `OperationalError` → `python data/seed.py` then retry
 
 **Assignment reminder:**
