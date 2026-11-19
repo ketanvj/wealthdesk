@@ -152,14 +152,20 @@ def llm_judge(question: str, criteria: list[str], response: str) -> tuple[int, s
         criteria_list=criteria_list,
         response=response,
     )
-    try:
-        result = judge_llm.invoke([
-            SystemMessage(content="You are a strict but fair evaluation judge."),
-            HumanMessage(content=prompt),
-        ])
-        return parse_judge_response(result.content)
-    except Exception as e:
-        return 0, f"Judge error: {e}"
+    # Retry up to 3 times: qwen/qwen3.8-27b occasionally returns an empty
+    # response. A second call to the same prompt usually succeeds.
+    for attempt in range(3):
+        try:
+            result = judge_llm.invoke([
+                SystemMessage(content="You are a strict but fair evaluation judge."),
+                HumanMessage(content=prompt),
+            ])
+            score, reason = parse_judge_response(result.content)
+            if score > 0:
+                return score, reason
+        except Exception as e:
+            return 0, f"Judge error: {e}"
+    return 0, "Judge returned empty output after 3 attempts"
 
 
 # ---------------------------------------------------------------------------
