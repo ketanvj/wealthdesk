@@ -1,0 +1,67 @@
+"""
+s08/tests/conftest.py
+---------------------
+Patches MCPAdapter before wealthdesk.tools is imported, so asyncio.run(_load_tools())
+succeeds without spawning a real MCP server subprocess.
+
+The patch must happen BEFORE import because tools.py runs asyncio.run(_load_tools())
+at module level (import time). A patch applied after import has no effect.
+"""
+import os
+import sys
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+os.environ.setdefault("GROQ_API_KEY", "test-key-not-real")
+
+# Remove any cached wealthdesk imports from a previous session
+for _k in list(sys.modules):
+    if _k == "wealthdesk" or _k.startswith("wealthdesk."):
+        sys.modules.pop(_k)
+
+SOLUTION_DIR = Path(__file__).parent.parent / "solution"
+sys.path.insert(0, str(SOLUTION_DIR))
+
+# Build real StructuredTool objects so llm.bind_tools(mcp_tools) works without error.
+# Using StructuredTool.from_function() because bind_tools() extracts tool schemas.
+from langchain_core.tools import StructuredTool   # noqa: E402
+
+
+def _query_rates(product_type: str = "all") -> str:
+    """Fetch current BNB interest rates from the database."""
+    return f"mock rates for {product_type}"
+
+
+def _query_branch(city: str = "all") -> str:
+    """Fetch BNB branch locations from the database."""
+    return f"mock branches for {city}"
+
+
+MOCK_MCP_TOOLS = [
+    StructuredTool.from_function(_query_rates, name="query_rates"),
+    StructuredTool.from_function(_query_branch, name="query_branch"),
+]
+
+
+class _FakeMCPAdapter:
+    """Stands in for langchain.mcp.MCPAdapter without spawning a subprocess."""
+    def __init__(self, _config):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+    async def list_tools(self):
+        return MOCK_MCP_TOOLS
+
+
+# Patch MCPAdapter in langchain.mcp BEFORE importing wealthdesk.tools.
+# When tools.py runs `from langchain.mcp import MCPAdapter` inside this patch block,
+# it gets _FakeMCPAdapter, so asyncio.run(_load_tools()) returns MOCK_MCP_TOOLS.
+with patch("langchain.mcp.MCPAdapter", _FakeMCPAdapter):
+    import wealthdesk.tools as _tools   # noqa: F401 — populates mcp_tools, _tool_registry
+    import wealthdesk.nodes as _nodes   # noqa: F401
+    import wealthdesk.agent             # noqa: F401
